@@ -1,5 +1,3 @@
-"""Tests for module structure and backward compatibility."""
-
 import logging
 
 import pytest

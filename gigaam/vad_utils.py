@@ -10,7 +10,6 @@ from torch.torch_version import TorchVersion
 
 from .audio_utils import SAMPLE_RATE, check_tensor, load_audio
 
-# Cache pipelines by (checkpoint, device_str) tuple for efficiency
 _PIPELINES: dict[tuple[str, str], Pipeline] = {}
 _PIPELINES_LOCK = threading.Lock()
 
@@ -31,7 +30,6 @@ def get_pipeline(device: torch.device, checkpoint: str = "pyannote/segmentation-
         if cache_key in _PIPELINES:
             return _PIPELINES[cache_key]
 
-        # Load pipeline inside lock to prevent duplicate loading
         try:
             hf_token = os.environ["HF_TOKEN"]
         except KeyError as e:

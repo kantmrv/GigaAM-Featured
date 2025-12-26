@@ -19,9 +19,8 @@ __all__ = [
     "load_model",
 ]
 
-# Default cache directory
+
 _CACHE_DIR = os.path.expanduser("~/.cache/gigaam")
-# Url with model checkpoints
 _URL_DIR = "https://cdn.chatwm.opensmodel.sberdevices.ru/GigaAM"
 _MODEL_HASHES = {
     "emo": "7ce76f9535cb254488985057c0d33006",
@@ -81,7 +80,7 @@ def _download_model(model_name: str, download_root: str) -> tuple[str, str]:
 def _download_tokenizer(model_name: str, download_root: str) -> str | None:
     """Download the tokenizer if required and return its path."""
     if model_name != "v1_rnnt" and "e2e" not in model_name:
-        return None  # No tokenizer required for this model
+        return None
 
     tokenizer_url = f"{_URL_DIR}/{model_name}_tokenizer.model"
     tokenizer_path = os.path.join(download_root, model_name + "_tokenizer.model")

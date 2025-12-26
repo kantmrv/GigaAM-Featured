@@ -1,5 +1,3 @@
-"""Test utilities for downloading and working with audio test files."""
-
 import os
 import urllib.request
 
