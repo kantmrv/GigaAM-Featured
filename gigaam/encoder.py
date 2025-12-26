@@ -1,20 +1,19 @@
 import math
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
 try:
-    from flash_attn import flash_attn_func
+    from flash_attn import flash_attn_func  # type: ignore[import-not-found]
 
     IMPORT_FLASH = True
 except Exception as err:
     IMPORT_FLASH = False
     IMPORT_FLASH_ERR = err
 
-from .utils import apply_masked_flash_attn, apply_rotary_pos_emb
+from .attention import apply_masked_flash_attn, apply_rotary_pos_emb
 
 
 class StridingSubsampling(nn.Module):
@@ -39,11 +38,9 @@ class StridingSubsampling(nn.Module):
         self._kernel_size = kernel_size
         self._padding = (self._kernel_size - 1) // 2
 
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         in_channels = 1 if self.subsampling_type == "conv2d" else feat_in
-        subs_conv_class = (
-            torch.nn.Conv2d if self.subsampling_type == "conv2d" else torch.nn.Conv1d
-        )
+        subs_conv_class = torch.nn.Conv2d if self.subsampling_type == "conv2d" else torch.nn.Conv1d
         for _ in range(self._sampling_num):
             layers.append(
                 subs_conv_class(
@@ -73,7 +70,7 @@ class StridingSubsampling(nn.Module):
             lengths = torch.floor(lengths)
         return lengths.to(dtype=torch.int)
 
-    def forward(self, x: Tensor, lengths: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor, lengths: Tensor) -> tuple[Tensor, Tensor]:
         if self.subsampling_type == "conv2d":
             x = self.conv(x.unsqueeze(1))
             b, _, t, _ = x.size()
@@ -88,9 +85,7 @@ class MultiHeadAttention(nn.Module, ABC):
     Base class of Multi-Head Attention Mechanisms.
     """
 
-    def __init__(
-        self, n_head: int, n_feat: int, flash_attn=False, torch_sdpa_attn=False
-    ):
+    def __init__(self, n_head: int, n_feat: int, flash_attn=False, torch_sdpa_attn=False):
         super().__init__()
         assert n_feat % n_head == 0
         self.d_k = n_feat // n_head
@@ -109,9 +104,7 @@ class MultiHeadAttention(nn.Module, ABC):
                 "--force-reinstall flag might be useful"
             )
 
-    def forward_qkv(
-        self, query: Tensor, key: Tensor, value: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward_qkv(self, query: Tensor, key: Tensor, value: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Projects the inputs into queries, keys, and values for multi-head attention.
         """
@@ -123,9 +116,7 @@ class MultiHeadAttention(nn.Module, ABC):
             return q, k, v
         return q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
-    def forward_attention(
-        self, value: Tensor, scores: Tensor, mask: Optional[Tensor]
-    ) -> Tensor:
+    def forward_attention(self, value: Tensor, scores: Tensor, mask: Tensor | None) -> Tensor:
         """
         Computes the scaled dot-product attention given the projected values and scores.
         """
@@ -164,7 +155,7 @@ class RelPositionMultiHeadAttention(MultiHeadAttention):
         key: Tensor,
         value: Tensor,
         pos_emb: Tensor,
-        mask: Optional[Tensor] = None,
+        mask: Tensor | None = None,
     ) -> Tensor:
         q, k, v = self.forward_qkv(query, key, value)
         q = q.transpose(1, 2)
@@ -190,8 +181,8 @@ class RotaryPositionMultiHeadAttention(MultiHeadAttention):
         query: Tensor,
         key: Tensor,
         value: Tensor,
-        pos_emb: List[Tensor],
-        mask: Optional[Tensor] = None,
+        pos_emb: list[Tensor],
+        mask: Tensor | None = None,
     ) -> Tensor:
         b, t, _ = value.size()
         query = query.transpose(0, 1).view(t, b, self.h, self.d_k)
@@ -209,7 +200,7 @@ class RotaryPositionMultiHeadAttention(MultiHeadAttention):
 
         if self.flash_attn:
             if mask is None:
-                scores = flash_attn_func(q, k, v)
+                scores = flash_attn_func(q, k, v)  # type: ignore[misc]
             else:
                 scores = apply_masked_flash_attn(q, k, v, mask, self.h, self.d_k)
             scores = scores.view(b, -1, self.h * self.d_k)
@@ -240,7 +231,7 @@ class PositionalEncoding(nn.Module, ABC):
         self.base = base
 
     @abstractmethod
-    def create_pe(self, length: int, device: torch.device) -> Optional[Tensor]:
+    def create_pe(self, length: int, device: torch.device) -> Tensor | None:
         pass
 
     def extend_pe(self, length: int, device: torch.device):
@@ -261,7 +252,7 @@ class RelPositionalEmbedding(PositionalEncoding):
     Relative Positional Embedding module.
     """
 
-    def create_pe(self, length: int, device: torch.device) -> Optional[Tensor]:
+    def create_pe(self, length: int, device: torch.device) -> Tensor | None:
         """
         Creates the relative positional encoding matrix.
         """
@@ -270,15 +261,12 @@ class RelPositionalEmbedding(PositionalEncoding):
         positions = torch.arange(length - 1, -length, -1, device=device).unsqueeze(1)
         pos_length = positions.size(0)
         pe = torch.zeros(pos_length, self.dim, device=positions.device)
-        div_term = torch.exp(
-            torch.arange(0, self.dim, 2, device=pe.device)
-            * -(math.log(10000.0) / self.dim)
-        )
+        div_term = torch.exp(torch.arange(0, self.dim, 2, device=pe.device) * -(math.log(10000.0) / self.dim))
         pe[:, 0::2] = torch.sin(positions * div_term)
         pe[:, 1::2] = torch.cos(positions * div_term)
         return pe.unsqueeze(0)
 
-    def forward(self, x: torch.Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[Tensor, Tensor]:
         input_len = x.size(1)
         center_pos = self.pe.size(1) // 2 + 1
         start_pos = center_pos - input_len
@@ -291,22 +279,20 @@ class RotaryPositionalEmbedding(PositionalEncoding):
     Rotary Positional Embedding module.
     """
 
-    def create_pe(self, length: int, device: torch.device) -> Optional[Tensor]:
+    def create_pe(self, length: int, device: torch.device) -> Tensor | None:
         """
         Creates or extends the rotary positional encoding matrix.
         """
         if hasattr(self, "pe") and self.pe.size(0) >= 2 * length:
             return None
         positions = torch.arange(0, length, dtype=torch.float32, device=device)
-        inv_freq = 1.0 / (
-            self.base ** (torch.arange(0, self.dim, 2).float() / self.dim)
-        )
+        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2).float() / self.dim))
         t = torch.arange(length, device=positions.device).type_as(inv_freq)
         freqs = torch.einsum("i,j->ij", t, inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1).to(positions.device)
         return torch.cat([emb.cos()[:, None, None, :], emb.sin()[:, None, None, :]])
 
-    def forward(self, x: torch.Tensor) -> Tuple[Tensor, List[Tensor]]:
+    def forward(self, x: torch.Tensor) -> tuple[Tensor, list[Tensor]]:
         cos_emb = self.pe[0 : x.shape[1]]
         half_pe = self.pe.shape[0] // 2
         sin_emb = self.pe[half_pe : half_pe + x.shape[1]]
@@ -337,15 +323,11 @@ class ConformerConvolution(nn.Module):
             groups=d_model,
             bias=True,
         )
-        self.batch_norm = (
-            nn.BatchNorm1d(d_model)
-            if norm_type == "batch_norm"
-            else nn.LayerNorm(d_model)
-        )
+        self.batch_norm = nn.BatchNorm1d(d_model) if norm_type == "batch_norm" else nn.LayerNorm(d_model)
         self.activation = nn.SiLU()
         self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
 
-    def forward(self, x: Tensor, pad_mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, x: Tensor, pad_mask: Tensor | None = None) -> Tensor:
         x = x.transpose(1, 2)
         x = self.pointwise_conv1(x)
         x = nn.functional.glu(x, dim=1)
@@ -425,9 +407,9 @@ class ConformerLayer(nn.Module):
     def forward(
         self,
         x: Tensor,
-        pos_emb: Union[Tensor, List[Tensor]],
-        att_mask: Optional[Tensor] = None,
-        pad_mask: Optional[Tensor] = None,
+        pos_emb: Tensor | list[Tensor],
+        att_mask: Tensor | None = None,
+        pad_mask: Tensor | None = None,
     ) -> Tensor:
         residual = x
         x = self.norm_feed_forward1(x)
@@ -477,6 +459,7 @@ class ConformerEncoder(nn.Module):
     ):
         super().__init__()
         self.feat_in = feat_in
+        self._pe_initialized = False
         assert self_attention_model in [
             "rotary",
             "rel_pos",
@@ -493,9 +476,7 @@ class ConformerEncoder(nn.Module):
 
         self.pos_emb_max_len = pos_emb_max_len
         if self_attention_model == "rotary":
-            self.pos_enc: PositionalEncoding = RotaryPositionalEmbedding(
-                d_model // n_heads, pos_emb_max_len
-            )
+            self.pos_enc: PositionalEncoding = RotaryPositionalEmbedding(d_model // n_heads, pos_emb_max_len)
         else:
             self.pos_enc = RelPositionalEmbedding(d_model, pos_emb_max_len)
 
@@ -516,19 +497,19 @@ class ConformerEncoder(nn.Module):
         self,
         batch_size: int = 1,
         seqlen: int = 200,
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         device = next(self.parameters()).device
         features = torch.zeros(batch_size, self.feat_in, seqlen)
         feature_lengths = torch.full([batch_size], features.shape[-1])
         return features.float().to(device), feature_lengths.to(device)
 
-    def input_names(self) -> List[str]:
+    def input_names(self) -> list[str]:
         return ["audio_signal", "length"]
 
-    def output_names(self) -> List[str]:
+    def output_names(self) -> list[str]:
         return ["encoded", "encoded_len"]
 
-    def dynamic_axes(self) -> Dict[str, Dict[int, str]]:
+    def dynamic_axes(self) -> dict[str, dict[int, str]]:
         return {
             "audio_signal": {0: "batch_size", 2: "seq_len"},
             "length": {0: "batch_size"},
@@ -536,25 +517,26 @@ class ConformerEncoder(nn.Module):
             "encoded_len": {0: "batch_size"},
         }
 
-    def forward(self, audio_signal: Tensor, length: Tensor) -> Tuple[Tensor, Tensor]:
-        if not hasattr(self.pos_enc, "pe"):
+    def forward(self, audio_signal: Tensor, length: Tensor) -> tuple[Tensor, Tensor]:
+        if not self._pe_initialized:
             self.pos_enc.extend_pe(self.pos_emb_max_len, audio_signal.device)
+            self._pe_initialized = True
 
-        audio_signal, length = self.pre_encode(
-            x=audio_signal.transpose(1, 2), lengths=length
-        )
+        audio_signal, length = self.pre_encode(x=audio_signal.transpose(1, 2), lengths=length)
 
         max_len = audio_signal.size(1)
         audio_signal, pos_emb = self.pos_enc(x=audio_signal)
 
-        pad_mask = torch.arange(0, max_len, device=audio_signal.device).expand(
-            length.size(0), -1
-        ) < length.unsqueeze(-1)
+        pad_mask = torch.arange(0, max_len, device=audio_signal.device).expand(length.size(0), -1) < length.unsqueeze(
+            -1
+        )
 
         att_mask = None
         if audio_signal.shape[0] > 1:
-            att_mask = pad_mask.unsqueeze(1).repeat([1, max_len, 1])
-            att_mask = torch.logical_and(att_mask, att_mask.transpose(1, 2))
+            att_mask = torch.logical_and(
+                pad_mask.unsqueeze(1),
+                pad_mask.unsqueeze(2),
+            )
             att_mask = ~att_mask
 
         pad_mask = ~pad_mask

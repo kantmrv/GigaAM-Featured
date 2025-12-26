@@ -1,43 +1,6 @@
-import warnings
-from subprocess import CalledProcessError, run
-from typing import Tuple
-
 import torch
 import torchaudio
 from torch import Tensor, nn
-
-SAMPLE_RATE = 16000
-
-
-def load_audio(audio_path: str, sample_rate: int = SAMPLE_RATE) -> Tensor:
-    """
-    Load an audio file and resample it to the specified sample rate.
-    """
-    cmd = [
-        "ffmpeg",
-        "-nostdin",
-        "-threads",
-        "0",
-        "-i",
-        audio_path,
-        "-f",
-        "s16le",
-        "-ac",
-        "1",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        str(sample_rate),
-        "-",
-    ]
-    try:
-        audio = run(cmd, capture_output=True, check=True).stdout
-    except CalledProcessError as exc:
-        raise RuntimeError("Failed to load audio") from exc
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=UserWarning)
-        return torch.frombuffer(audio, dtype=torch.int16).float() / 32768.0
 
 
 class SpecScaler(nn.Module):
@@ -57,12 +20,21 @@ class FeatureExtractor(nn.Module):
     and applies logarithmic scaling.
     """
 
-    def __init__(self, sample_rate: int, features: int, **kwargs):
+    def __init__(
+        self,
+        sample_rate: int,
+        features: int,
+        hop_length: int | None = None,
+        win_length: int | None = None,
+        n_fft: int | None = None,
+        center: bool = True,
+        **_kwargs: object,
+    ):
         super().__init__()
-        self.hop_length = kwargs.get("hop_length", sample_rate // 100)
-        self.win_length = kwargs.get("win_length", sample_rate // 40)
-        self.n_fft = kwargs.get("n_fft", sample_rate // 40)
-        self.center = kwargs.get("center", True)
+        self.hop_length = hop_length if hop_length is not None else sample_rate // 100
+        self.win_length = win_length if win_length is not None else sample_rate // 40
+        self.n_fft = n_fft if n_fft is not None else sample_rate // 40
+        self.center = center
         self.featurizer = nn.Sequential(
             torchaudio.transforms.MelSpectrogram(
                 sample_rate=sample_rate,
@@ -80,18 +52,11 @@ class FeatureExtractor(nn.Module):
         Calculates the output length after the feature extraction process.
         """
         if self.center:
-            return (
-                input_lengths.div(self.hop_length, rounding_mode="floor").add(1).long()
-            )
+            return input_lengths.div(self.hop_length, rounding_mode="floor").add(1).long()
         else:
-            return (
-                (input_lengths - self.win_length)
-                .div(self.hop_length, rounding_mode="floor")
-                .add(1)
-                .long()
-            )
+            return (input_lengths - self.win_length).div(self.hop_length, rounding_mode="floor").add(1).long()
 
-    def forward(self, input_signal: Tensor, length: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, input_signal: Tensor, length: Tensor) -> tuple[Tensor, Tensor]:
         """
         Extract Log-mel spectrogram features from the input audio signal.
         """

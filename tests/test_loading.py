@@ -2,9 +2,9 @@ import logging
 import os
 
 import pytest
+from test_utils import download_short_audio
 
 import gigaam
-from gigaam.utils import download_short_audio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,21 +36,19 @@ def run_model_method(model, revision, test_audio):
 
     elif "emo" in revision:
         result = model.get_probs(test_audio)
-        assert all(
-            abs(result[em] - _predictions["emo"][em]) < 1e-3 for em in result
-        ), f"Emotion probs failed: {result}"
+        assert all(abs(result[em] - _predictions["emo"][em]) < 1e-3 for em in result), f"Emotion probs failed: {result}"
         logger.info(f"{revision}: Emotion probs obtained")
 
     else:
         result = model.transcribe(test_audio)
+        assert isinstance(result, list), f"Expected list, got {type(result)}"
+        assert len(result) == 1, f"Expected single result, got {len(result)}"
+        assert hasattr(result[0], "text"), "Missing 'text' attribute in result"
+        text = result[0].text
         if "e2e" in revision:
-            assert (
-                _predictions[revision] == result
-            ), f"Transcription failed ({revision}): {result}"
+            assert _predictions[revision] == text, f"Transcription failed ({revision}): {text}"
         else:
-            assert (
-                _predictions["asr"] == result
-            ), f"Transcription failed ({revision}): {result}"
+            assert _predictions["asr"] == text, f"Transcription failed ({revision}): {text}"
         logger.info(f"{revision}: Transcription completed")
 
 

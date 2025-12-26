@@ -6,7 +6,7 @@ import torch
 from scipy import signal
 
 import gigaam
-from gigaam.utils import AudioDataset
+from gigaam.audio_utils import AudioDataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,9 +36,7 @@ def custom_forward(model, features, feature_lengths):
     """Custom forward pass for batching comparison"""
     out_feat, out_lns = [], []
     for i in range(len(features)):
-        of, ol = model.preprocessor(
-            features[i : i + 1, : feature_lengths[i]], feature_lengths[i : i + 1]
-        )
+        of, ol = model.preprocessor(features[i : i + 1, : feature_lengths[i]], feature_lengths[i : i + 1])
         if model._device.type == "cpu":
             of, ol = model.encoder.pre_encode(of.transpose(1, 2), ol)
         else:
@@ -47,9 +45,7 @@ def custom_forward(model, features, feature_lengths):
         out_feat.append(of.transpose(1, 2))
         out_lns.append(ol.item())
 
-    features_padded = torch.zeros(len(features), out_feat[0].shape[1], max(out_lns)).to(
-        features.device
-    )
+    features_padded = torch.zeros(len(features), out_feat[0].shape[1], max(out_lns)).to(features.device)
     for i in range(len(features)):
         features_padded[i, :, : out_lns[i]] = out_feat[i][:, :, : out_lns[i]]
     feature_lengths_tensor = torch.tensor(out_lns).to(features.device)
@@ -73,9 +69,7 @@ def compare_outputs(output1, output2, atol=0.03):
     feat2, lens2 = output2
     assert (lens1 == lens2).all(), f"Length mismatch: {lens1} != {lens2}"
     min_len = min(lens1.item(), lens2.item())
-    assert (
-        feat1.shape[:2] == feat2.shape[:2]
-    ), f"Shape mismatch: {feat1.shape} vs {feat2.shape}"
+    assert feat1.shape[:2] == feat2.shape[:2], f"Shape mismatch: {feat1.shape} vs {feat2.shape}"
 
     feat1, feat2 = feat1[:, :, :min_len], feat2[:, :, :min_len]
     abs_diff = torch.abs(feat1 - feat2).max().item()
@@ -94,15 +88,12 @@ def test_model_batching(revision, batch_size):
     model.eval()
     device = next(model.parameters()).device
 
-    features, feature_lengths = create_test_batches(
-        batch_size=batch_size, max_duration=5.0
-    )
+    features, feature_lengths = create_test_batches(batch_size=batch_size, max_duration=5.0)
     features, feature_lengths = features.to(device), feature_lengths.to(device)
 
     with torch.no_grad():
         batch_output = custom_forward(model, features, feature_lengths)
 
-    # Compare with individual processing
     for i in range(batch_size):
         single_features = features[i : i + 1][:, : feature_lengths[i]]
         single_lengths = feature_lengths[i : i + 1]
@@ -116,10 +107,7 @@ def test_model_batching(revision, batch_size):
             batch_element = (batch_output[0][i : i + 1], batch_output[1][i : i + 1])
             close, metrics = compare_outputs(batch_element, single_output)
 
-        assert close, (
-            f"Batch inconsistency for sample {i}: "
-            f"abs_diff={metrics['max_absolute_difference']:.4f}, "
-        )
+        assert close, f"Batch inconsistency for sample {i}: abs_diff={metrics['max_absolute_difference']:.4f}, "
 
     logger.info(f"Batching test passed: {revision} batch_size={batch_size}")
 
@@ -131,7 +119,6 @@ def test_batching_edge_cases(revision):
     model.eval()
     device = next(model.parameters()).device
 
-    # Test with very short sequences
     features = torch.randn(2, 5000).to(device)
     feature_lengths = torch.tensor([3200, 5000], dtype=torch.int32).to(device)
 
@@ -149,9 +136,7 @@ def test_different_audio_lengths(max_duration):
     model.eval()
     device = next(model.parameters()).device
 
-    features, feature_lengths = create_test_batches(
-        batch_size=2, max_duration=max_duration
-    )
+    features, feature_lengths = create_test_batches(batch_size=2, max_duration=max_duration)
     features, feature_lengths = features.to(device), feature_lengths.to(device)
 
     with torch.no_grad():

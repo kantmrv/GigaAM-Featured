@@ -1,7 +1,20 @@
-__pycache__
-build
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
 *.egg-info
 *.wav
 .DS_Store
 *tmp*
 onnx
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+junit.xml
+
+# Virtual environments
+.venv

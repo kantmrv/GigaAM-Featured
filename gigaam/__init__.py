@@ -3,14 +3,12 @@ import logging
 import os
 import urllib.request
 import warnings
-from typing import Optional, Tuple, Union
 
 import torch
 from tqdm import tqdm
 
+from .audio_utils import format_time, load_audio
 from .model import GigaAM, GigaAMASR, GigaAMEmo
-from .preprocess import load_audio
-from .utils import format_time
 
 __all__ = [
     "GigaAM",
@@ -66,14 +64,12 @@ def _download_file(file_url: str, file_path: str):
     return file_path
 
 
-def _download_model(model_name: str, download_root: str) -> Tuple[str, str]:
+def _download_model(model_name: str, download_root: str) -> tuple[str, str]:
     """Download the model weights if not already cached."""
     short_names = ["ctc", "rnnt", "e2e_ctc", "e2e_rnnt", "ssl"]
     possible_names = short_names + list(_MODEL_HASHES.keys())
     if model_name not in possible_names:
-        raise ValueError(
-            f"Model '{model_name}' not found. Available model names: {possible_names}"
-        )
+        raise ValueError(f"Unknown model name: {model_name}. Available: {possible_names}")
 
     if model_name in short_names:
         model_name = f"v3_{model_name}"
@@ -82,7 +78,7 @@ def _download_model(model_name: str, download_root: str) -> Tuple[str, str]:
     return model_name, _download_file(model_url, model_path)
 
 
-def _download_tokenizer(model_name: str, download_root: str) -> Optional[str]:
+def _download_tokenizer(model_name: str, download_root: str) -> str | None:
     """Download the tokenizer if required and return its path."""
     if model_name != "v1_rnnt" and "e2e" not in model_name:
         return None  # No tokenizer required for this model
@@ -94,10 +90,11 @@ def _download_tokenizer(model_name: str, download_root: str) -> Optional[str]:
 
 def hash_path(ckpt_path: str) -> str:
     """Calculate binary file hash for checksum"""
-    return hashlib.md5(open(ckpt_path, "rb").read()).hexdigest()
+    with open(ckpt_path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
 
 
-def _normalize_device(device: Optional[Union[str, torch.device]]) -> torch.device:
+def _normalize_device(device: str | torch.device | None) -> torch.device:
     """Normalize device parameter to torch.device."""
     if device is None:
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -110,10 +107,10 @@ def _normalize_device(device: Optional[Union[str, torch.device]]) -> torch.devic
 def load_model(
     model_name: str,
     fp16_encoder: bool = True,
-    use_flash: Optional[bool] = False,
-    device: Optional[Union[str, torch.device]] = None,
-    download_root: Optional[str] = None,
-) -> Union[GigaAM, GigaAMEmo, GigaAMASR]:
+    use_flash: bool | None = False,
+    device: str | torch.device | None = None,
+    download_root: str | None = None,
+) -> GigaAM | GigaAMEmo | GigaAMASR:
     """
     Load the GigaAM model by name.
 
@@ -139,9 +136,9 @@ def load_model(
     model_name, model_path = _download_model(model_name, download_root)
     tokenizer_path = _download_tokenizer(model_name, download_root)
 
-    assert (
-        hash_path(model_path) == _MODEL_HASHES[model_name]
-    ), f"Model checksum failed. Please run `rm {model_path}` and reload the model"
+    assert hash_path(model_path) == _MODEL_HASHES[model_name], (
+        f"Model checksum failed. Please run `rm {model_path}` and reload the model"
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=(FutureWarning))
